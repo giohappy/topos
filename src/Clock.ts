@@ -50,6 +50,11 @@ export class Clock {
 
   timeviewer: HTMLElement;
 
+  private lastTime: number;
+  private deltaSum: number;
+  private averageDelta: number;
+  private runs: number;
+
   constructor(public app: Editor, ctx: AudioContext) {
     this.timeviewer = document.getElementById("timeviewer")!;
     this.time_position = { bar: 0, beat: 0, pulse: 0 };
@@ -61,8 +66,12 @@ export class Clock {
     this._nudge = 0;
     this.ctx = ctx;
     this.running = true;
-    this.timeAtStart = ctx.currentTime;
+    this.timeAtStart = 0;
     this.initializeWorker();
+    this.lastTime = 0;
+    this.deltaSum = 0;
+    this.averageDelta = 0;
+    this.runs = 0;
   }
 
   private initializeWorker(): void {
@@ -79,8 +88,20 @@ export class Clock {
       "onmessage = (e) => { setInterval(() => { postMessage(true) }, e.data)}";
     const blob = new Blob([workerScript], { type: "text/javascript" });
     this.timerWorker = new Worker(URL.createObjectURL(blob));
+    let warmUpRuns = 10;
     this.timerWorker.onmessage = () => {
+      let currentTIme = performance.now();
+      let delta = currentTIme - this.lastTime;
+      if (this.runs > warmUpRuns) { 
+        this.deltaSum += delta;
+        this.averageDelta = this.deltaSum / (this.runs - warmUpRuns);
+      }
+      this.lastTime = currentTIme;
       this.run();
+      this.runs += 1;
+      if (this.runs > warmUpRuns) { 
+        console.log(`${delta},${this.averageDelta},${this.deviation},${this.runs - warmUpRuns}`);
+      }
     };
   }
 
@@ -306,7 +327,7 @@ export class Clock {
      *
      * @returns deviation between the logical time and the real time
      */
-    return this.logicalTime - this.realTime;
+    return this.logicalTime - (this.lastTime / 1000);
   }
 
   set ppqn(ppqn: number) {
@@ -376,8 +397,10 @@ export class Clock {
       this.initializeWorker();
     }
     this.setWorkerInterval();
-    this.timeAtStart = this.ctx.currentTime;
+    this.timeAtStart = performance.now();
     this.logicalTime = this.timeAtStart;
+    this.runs = 0;
+    this.lastTime = performance.now();
   }
 
   public pause(): void {
